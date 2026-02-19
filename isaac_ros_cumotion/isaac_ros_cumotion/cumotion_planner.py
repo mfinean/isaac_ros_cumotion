@@ -685,7 +685,18 @@ class CumotionActionServer(Node):
             time_d = rclpy.time.Duration(seconds=i * dt).to_msg()
             traj_pt.time_from_start = time_d
             cmd_traj.points.append(traj_pt)
-        cmd_traj.joint_names = js.joint_names
+        if js.joint_names is not None:
+            cmd_traj.joint_names = list(js.joint_names)
+        else:
+            self.get_logger().warn(
+                'joint_names missing from cuRobo result, using active joint names'
+            )
+            cmd_traj.joint_names = list(self.motion_gen.kinematics.joint_names)
+        self.get_logger().info(
+            f'Trajectory: {len(cmd_traj.points)} points, '
+            f'{len(cmd_traj.joint_names)} joints: {cmd_traj.joint_names}, '
+            f'dt={dt:.4f}, type(joint_names)={type(js.joint_names)}'
+        )
         cmd_traj.header.stamp = self.get_clock().now().to_msg()
         traj.joint_trajectory = cmd_traj
         return traj
@@ -914,6 +925,28 @@ class CumotionActionServer(Node):
                     time_dilation_factor=time_dilation_factor,
                 ),
             )
+            # Fallback: if trajopt failed, retry with graph+finetune only
+            if (
+                self.__enable_trajectory_optimization
+                and not motion_gen_result.success.item()
+                and motion_gen_result.valid_query
+            ):
+                self.get_logger().warn(
+                    f'Trajopt failed ({motion_gen_result.status}), '
+                    'retrying with graph+finetune fallback'
+                )
+                self.motion_gen.reset(reset_seed=False)
+                motion_gen_result = self.motion_gen.plan_single_js(
+                    start_state,
+                    goal_state,
+                    MotionGenPlanConfig(
+                        max_attempts=self.__max_attempts,
+                        enable_graph_attempt=1,
+                        enable_graph=True,
+                        enable_opt=False,
+                        time_dilation_factor=time_dilation_factor,
+                    ),
+                )
         else:
             self.get_logger().info('Calling motion_gen.plan_single for pose planning')
             motion_gen_result = self.motion_gen.plan_single(
@@ -927,14 +960,39 @@ class CumotionActionServer(Node):
                     time_dilation_factor=time_dilation_factor,
                 ),
             )
+            # Fallback: if trajopt failed, retry with graph+finetune only
+            if (
+                self.__enable_trajectory_optimization
+                and not motion_gen_result.success.item()
+                and motion_gen_result.valid_query
+            ):
+                self.get_logger().warn(
+                    f'Trajopt failed ({motion_gen_result.status}), '
+                    'retrying with graph+finetune fallback'
+                )
+                self.motion_gen.reset(reset_seed=False)
+                motion_gen_result = self.motion_gen.plan_single(
+                    start_state,
+                    goal_pose,
+                    MotionGenPlanConfig(
+                        max_attempts=self.__max_attempts,
+                        enable_graph_attempt=1,
+                        enable_graph=True,
+                        enable_opt=False,
+                        time_dilation_factor=time_dilation_factor,
+                    ),
+                )
         with self.lock:
             self.planner_busy = False
         result = MoveGroup.Result()
         if motion_gen_result.success.item():
             result.error_code.val = MoveItErrorCodes.SUCCESS
             result.trajectory_start = plan_req.start_state
+            # Use get_interpolated_plan() which properly trims the trajectory
+            # buffer and handles both trajopt and graph+finetune results.
+            plan = motion_gen_result.get_interpolated_plan()
             traj = self.get_joint_trajectory(
-                motion_gen_result.optimized_plan, motion_gen_result.optimized_dt.item()
+                plan, motion_gen_result.interpolation_dt
             )
             result.planning_time = motion_gen_result.total_time
             result.planned_trajectory = traj

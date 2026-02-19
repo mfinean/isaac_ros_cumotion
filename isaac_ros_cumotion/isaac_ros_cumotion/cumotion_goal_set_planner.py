@@ -260,6 +260,27 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                         time_dilation_factor=time_dilation_factor,
                     ),
                 )
+                # Fallback: if trajopt failed, retry with graph+finetune only
+                if (
+                    self._CumotionActionServer__enable_trajectory_optimization
+                    and not motion_gen_result.success.item()
+                    and motion_gen_result.valid_query
+                ):
+                    self.get_logger().warn(
+                        f'Trajopt failed ({motion_gen_result.status}), '
+                        'retrying with graph+finetune fallback'
+                    )
+                    self.motion_gen.reset(reset_seed=False)
+                    motion_gen_result = self.motion_gen.plan_single_js(
+                        start_state,
+                        goal_state,
+                        MotionGenPlanConfig(
+                            max_attempts=self._CumotionActionServer__max_attempts,
+                            enable_graph_attempt=1,
+                            enable_opt=False,
+                            time_dilation_factor=time_dilation_factor,
+                        ),
+                    )
                 self.toggle_link_collision(plan_req.disable_collision_links, True)
 
             elif plan_req.plan_pose:
@@ -297,6 +318,28 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                             pose_cost_metric=pose_cost_metric,
                         ),
                     )
+                    # Fallback: if trajopt failed, retry with graph+finetune only
+                    if (
+                        self._CumotionActionServer__enable_trajectory_optimization
+                        and not motion_gen_result.success.item()
+                        and motion_gen_result.valid_query
+                    ):
+                        self.get_logger().warn(
+                            f'Trajopt failed ({motion_gen_result.status}), '
+                            'retrying with graph+finetune fallback'
+                        )
+                        self.motion_gen.reset(reset_seed=False)
+                        motion_gen_result = self.motion_gen.plan_single(
+                            start_state,
+                            poses,
+                            MotionGenPlanConfig(
+                                max_attempts=self._CumotionActionServer__max_attempts,
+                                enable_graph_attempt=1,
+                                enable_opt=False,
+                                time_dilation_factor=time_dilation_factor,
+                                pose_cost_metric=pose_cost_metric,
+                            ),
+                        )
                 else:
                     motion_gen_result = self.motion_gen.plan_goalset(
                         start_state,
@@ -309,6 +352,28 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                             pose_cost_metric=pose_cost_metric,
                         ),
                     )
+                    # Fallback: if trajopt failed, retry with graph+finetune only
+                    if (
+                        self._CumotionActionServer__enable_trajectory_optimization
+                        and not motion_gen_result.success.item()
+                        and motion_gen_result.valid_query
+                    ):
+                        self.get_logger().warn(
+                            f'Trajopt failed ({motion_gen_result.status}), '
+                            'retrying with graph+finetune fallback'
+                        )
+                        self.motion_gen.reset(reset_seed=False)
+                        motion_gen_result = self.motion_gen.plan_goalset(
+                            start_state,
+                            poses,
+                            MotionGenPlanConfig(
+                                max_attempts=self._CumotionActionServer__max_attempts,
+                                enable_graph_attempt=1,
+                                enable_opt=False,
+                                time_dilation_factor=time_dilation_factor,
+                                pose_cost_metric=pose_cost_metric,
+                            ),
+                        )
                 self.toggle_link_collision(plan_req.disable_collision_links, True)
 
             if motion_gen_result.success.item():
