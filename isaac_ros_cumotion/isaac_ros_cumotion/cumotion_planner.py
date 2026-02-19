@@ -909,8 +909,11 @@ class CumotionActionServer(Node):
         with self.lock:
             self.planner_busy = True
 
-        self.motion_gen.reset(reset_seed=False)
-        
+        # Full reset (including random seeds) to prevent hysteresis where
+        # stale finetune solver state causes FINETUNE_TRAJOPT_FAIL on
+        # repeated plans of the same transition.
+        self.motion_gen.reset()
+
         # Execute planning using the appropriate method based on goal type
         if use_joint_space_planning:
             self.get_logger().info('Calling motion_gen.plan_single_js for joint space planning')
@@ -925,7 +928,8 @@ class CumotionActionServer(Node):
                     time_dilation_factor=time_dilation_factor,
                 ),
             )
-            # Fallback: if trajopt failed, retry with graph+finetune only
+            # Fallback: if finetune failed, retry without finetune (keeps
+            # trajopt result which is already collision-free, just less smooth).
             if (
                 self.__enable_trajectory_optimization
                 and not motion_gen_result.success.item()
@@ -933,9 +937,9 @@ class CumotionActionServer(Node):
             ):
                 self.get_logger().warn(
                     f'Trajopt failed ({motion_gen_result.status}), '
-                    'retrying with graph+finetune fallback'
+                    'retrying without finetune'
                 )
-                self.motion_gen.reset(reset_seed=False)
+                self.motion_gen.reset()
                 motion_gen_result = self.motion_gen.plan_single_js(
                     start_state,
                     goal_state,
@@ -943,7 +947,8 @@ class CumotionActionServer(Node):
                         max_attempts=self.__max_attempts,
                         enable_graph_attempt=1,
                         enable_graph=True,
-                        enable_opt=False,
+                        enable_opt=True,
+                        enable_finetune_trajopt=False,
                         time_dilation_factor=time_dilation_factor,
                     ),
                 )
@@ -960,7 +965,7 @@ class CumotionActionServer(Node):
                     time_dilation_factor=time_dilation_factor,
                 ),
             )
-            # Fallback: if trajopt failed, retry with graph+finetune only
+            # Fallback: if finetune failed, retry without finetune.
             if (
                 self.__enable_trajectory_optimization
                 and not motion_gen_result.success.item()
@@ -968,9 +973,9 @@ class CumotionActionServer(Node):
             ):
                 self.get_logger().warn(
                     f'Trajopt failed ({motion_gen_result.status}), '
-                    'retrying with graph+finetune fallback'
+                    'retrying without finetune'
                 )
-                self.motion_gen.reset(reset_seed=False)
+                self.motion_gen.reset()
                 motion_gen_result = self.motion_gen.plan_single(
                     start_state,
                     goal_pose,
@@ -978,7 +983,8 @@ class CumotionActionServer(Node):
                         max_attempts=self.__max_attempts,
                         enable_graph_attempt=1,
                         enable_graph=True,
-                        enable_opt=False,
+                        enable_opt=True,
+                        enable_finetune_trajopt=False,
                         time_dilation_factor=time_dilation_factor,
                     ),
                 )
@@ -991,6 +997,20 @@ class CumotionActionServer(Node):
             # Use get_interpolated_plan() which properly trims the trajectory
             # buffer and handles both trajopt and graph+finetune results.
             plan = motion_gen_result.get_interpolated_plan()
+            # For graph-only results (enable_opt=False fallback), the graph
+            # planner may return the full interpolation buffer (e.g. 5000
+            # points).  Trim by finding the last waypoint that differs from
+            # its predecessor — everything after that is padding.
+            if plan.position.shape[0] > 500:
+                pos = plan.position.squeeze()
+                diffs = (pos[1:] - pos[:-1]).abs().sum(dim=-1)
+                nonzero = diffs.nonzero(as_tuple=True)[0]
+                if len(nonzero) > 0:
+                    last_moving = int(nonzero[-1].item()) + 2  # +1 for diff offset, +1 for final
+                    plan = plan[:last_moving]
+                    self.get_logger().info(
+                        f'Trimmed graph trajectory from {pos.shape[0]} to {last_moving} points'
+                    )
             traj = self.get_joint_trajectory(
                 plan, motion_gen_result.interpolation_dt
             )

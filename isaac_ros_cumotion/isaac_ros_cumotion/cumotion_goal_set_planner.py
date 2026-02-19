@@ -260,7 +260,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                         time_dilation_factor=time_dilation_factor,
                     ),
                 )
-                # Fallback: if trajopt failed, retry with graph+finetune only
+                # Fallback: if finetune failed, retry without finetune
                 if (
                     self._CumotionActionServer__enable_trajectory_optimization
                     and not motion_gen_result.success.item()
@@ -268,16 +268,17 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 ):
                     self.get_logger().warn(
                         f'Trajopt failed ({motion_gen_result.status}), '
-                        'retrying with graph+finetune fallback'
+                        'retrying without finetune'
                     )
-                    self.motion_gen.reset(reset_seed=False)
+                    self.motion_gen.reset()
                     motion_gen_result = self.motion_gen.plan_single_js(
                         start_state,
                         goal_state,
                         MotionGenPlanConfig(
                             max_attempts=self._CumotionActionServer__max_attempts,
                             enable_graph_attempt=1,
-                            enable_opt=False,
+                            enable_opt=True,
+                            enable_finetune_trajopt=False,
                             time_dilation_factor=time_dilation_factor,
                         ),
                     )
@@ -318,7 +319,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                             pose_cost_metric=pose_cost_metric,
                         ),
                     )
-                    # Fallback: if trajopt failed, retry with graph+finetune only
+                    # Fallback: if finetune failed, retry without finetune
                     if (
                         self._CumotionActionServer__enable_trajectory_optimization
                         and not motion_gen_result.success.item()
@@ -326,16 +327,17 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                     ):
                         self.get_logger().warn(
                             f'Trajopt failed ({motion_gen_result.status}), '
-                            'retrying with graph+finetune fallback'
+                            'retrying without finetune'
                         )
-                        self.motion_gen.reset(reset_seed=False)
+                        self.motion_gen.reset()
                         motion_gen_result = self.motion_gen.plan_single(
                             start_state,
                             poses,
                             MotionGenPlanConfig(
                                 max_attempts=self._CumotionActionServer__max_attempts,
                                 enable_graph_attempt=1,
-                                enable_opt=False,
+                                enable_opt=True,
+                                enable_finetune_trajopt=False,
                                 time_dilation_factor=time_dilation_factor,
                                 pose_cost_metric=pose_cost_metric,
                             ),
@@ -352,7 +354,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                             pose_cost_metric=pose_cost_metric,
                         ),
                     )
-                    # Fallback: if trajopt failed, retry with graph+finetune only
+                    # Fallback: if finetune failed, retry without finetune
                     if (
                         self._CumotionActionServer__enable_trajectory_optimization
                         and not motion_gen_result.success.item()
@@ -360,16 +362,17 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                     ):
                         self.get_logger().warn(
                             f'Trajopt failed ({motion_gen_result.status}), '
-                            'retrying with graph+finetune fallback'
+                            'retrying without finetune'
                         )
-                        self.motion_gen.reset(reset_seed=False)
+                        self.motion_gen.reset()
                         motion_gen_result = self.motion_gen.plan_goalset(
                             start_state,
                             poses,
                             MotionGenPlanConfig(
                                 max_attempts=self._CumotionActionServer__max_attempts,
                                 enable_graph_attempt=1,
-                                enable_opt=False,
+                                enable_opt=True,
+                                enable_finetune_trajopt=False,
                                 time_dilation_factor=time_dilation_factor,
                                 pose_cost_metric=pose_cost_metric,
                             ),

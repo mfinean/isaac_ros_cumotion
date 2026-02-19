@@ -36,7 +36,7 @@ namespace
 {
 
 constexpr unsigned kSleepIntervalInMs = 5;
-constexpr unsigned kTimeoutIntervalInSeconds = 5;
+constexpr unsigned kTimeoutIntervalInSeconds = 30;
 
 }  // namespace
 
