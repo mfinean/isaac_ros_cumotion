@@ -105,6 +105,7 @@ class CumotionActionServer(Node):
         self.declare_parameter('override_moveit_scaling_factors', False)
         self.declare_parameter('update_link_sphere_server',
                                'planner_attach_object')
+        self.declare_parameter('stability_config_file', '')
         debug_mode = (
             self.get_parameter('enable_curobo_debug_mode').get_parameter_value().bool_value
         )
@@ -190,6 +191,11 @@ class CumotionActionServer(Node):
         self.__enable_trajectory_optimization = (
             self.get_parameter('enable_trajectory_optimization').get_parameter_value().bool_value
         )
+
+        stability_config = (
+            self.get_parameter('stability_config_file').get_parameter_value().string_value
+        )
+        self.__stability_config = stability_config if stability_config else None
 
         collision_cache_cuboid = (
             self.get_parameter('collision_cache_cuboid').get_parameter_value().integer_value
@@ -424,6 +430,17 @@ class CumotionActionServer(Node):
         )
 
         motion_gen = MotionGen(motion_gen_config)
+
+        if self.__stability_config:
+            try:
+                from kinisi_curobo.stability_cost import apply_stability_cost
+                apply_stability_cost(
+                    motion_gen, self.__stability_config, tensor_args,
+                    logger_fn=self.get_logger().info,
+                )
+            except Exception as e:
+                self.get_logger().error(f'Failed to apply stability cost: {e}')
+
         self.motion_gen = motion_gen
         self.__robot_base_frame = self.motion_gen.kinematics.base_link
 
