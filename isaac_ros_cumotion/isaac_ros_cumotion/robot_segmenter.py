@@ -418,7 +418,13 @@ class CumotionRobotSegmenter(Node):
         segmented_depth = segmented_depth_images[idx]
 
         if self._filter_speckles_in_mask:
-            depth_mask, segmented_depth = self.filter_depth_mask(depth_mask, segmented_depth)
+            # filter_depth_mask uses NumPy/OpenCV, so move tensors to CPU first
+            device = depth_mask.device
+            mask_np = depth_mask.cpu().numpy()
+            depth_np = segmented_depth.cpu().numpy()
+            mask_np, depth_np = self.filter_depth_mask(mask_np, depth_np)
+            depth_mask = torch.as_tensor(mask_np).to(device)
+            segmented_depth = torch.as_tensor(depth_np).to(device)
 
         depth_mask_stride = depth_mask.stride(0) * depth_mask.element_size()
         built_mask_image = self.mask_builder.build(
