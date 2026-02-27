@@ -490,6 +490,11 @@ class CumotionActionServer(Node):
             self.__esdf_req.aabbs_to_clear_size_m = objects_to_clear[1]
             self.__esdf_req.spheres_to_clear_center_m = objects_to_clear[2]
             self.__esdf_req.spheres_to_clear_radius_m = objects_to_clear[3]
+        else:
+            self.__esdf_req.aabbs_to_clear_min_m = []
+            self.__esdf_req.aabbs_to_clear_size_m = []
+            self.__esdf_req.spheres_to_clear_center_m = []
+            self.__esdf_req.spheres_to_clear_radius_m = []
 
         self.get_logger().info(
             f'use_aabb_on_request: {self.__use_aabb_on_request}\n'
