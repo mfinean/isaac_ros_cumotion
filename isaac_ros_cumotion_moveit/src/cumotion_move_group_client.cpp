@@ -133,19 +133,24 @@ void CumotionMoveGroupClient::getGoal()
 
     if (res.code == rclcpp_action::ResultCode::SUCCEEDED) {
       RCLCPP_INFO(node_->get_logger(), "Success");
-      result_ready = true;
-      success = false;
       plan_response.error_code = res.result->error_code;
       if (plan_response.error_code.val == 1) {
-        success = true;
         plan_response.trajectory_start = res.result->trajectory_start;
         plan_response.group_name = planning_request_.group_name;
         plan_response.trajectory.resize(1);
         plan_response.trajectory[0] = res.result->planned_trajectory;
         plan_response.processing_time = {res.result->planning_time};
+        success = true;
+      } else {
+        success = false;
       }
+      // Set result_ready LAST — it is the release flag that the polling
+      // loop checks.  All data must be fully populated before this point.
+      result_ready = true;
     } else {
       RCLCPP_INFO(node_->get_logger(), "Failed");
+      success = false;
+      result_ready = true;
     }
     get_result_handle_ = false;
   }
