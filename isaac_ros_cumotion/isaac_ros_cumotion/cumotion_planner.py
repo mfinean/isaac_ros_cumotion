@@ -784,8 +784,6 @@ class CumotionActionServer(Node):
                                str(time_dilation_factor))
         plan_req = goal_handle.request.request
 
-        goal_handle.succeed()
-
         scene = goal_handle.request.planning_options.planning_scene_diff
 
         world_objects = scene.world.collision_objects
@@ -795,6 +793,7 @@ class CumotionActionServer(Node):
         if not world_update_status:
             result.error_code.val = MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE
             self.get_logger().error('World update failed.')
+            goal_handle.succeed()
             return result
         start_state = None
         if len(plan_req.start_state.joint_state.position) > 0:
@@ -815,6 +814,7 @@ class CumotionActionServer(Node):
                 self.get_logger().error(
                     'joint_state was not received from ' + self.__joint_states_topic
                 )
+                goal_handle.succeed()
                 return result
 
             # read joint state:
@@ -829,6 +829,7 @@ class CumotionActionServer(Node):
                     ' start velocity shape is ' + str(state.velocity.shape) +
                     ', both should match. JointState was read from ' + self.__joint_states_topic
                 )
+                goal_handle.succeed()
                 return result
             current_joint_state = self.motion_gen.get_active_js(state)
             if start_state is not None and plan_req.start_state.is_diff:
@@ -908,6 +909,7 @@ class CumotionActionServer(Node):
                     + '" do not match'
                 )
                 result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
+                goal_handle.succeed()
                 return result
             if position_link_name != plan_link_name:
                 self.get_logger().error(
@@ -919,6 +921,7 @@ class CumotionActionServer(Node):
                     + position_link_name
                 )
                 result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
+                goal_handle.succeed()
                 return result
         else:
             self.get_logger().error('Goal constraints not supported')
@@ -1061,6 +1064,7 @@ class CumotionActionServer(Node):
             + str(motion_gen_result.status)
         )
         self.__query_count += 1
+        goal_handle.succeed()
         return result
 
     def publish_voxels(self, voxels):

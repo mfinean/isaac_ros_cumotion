@@ -97,8 +97,14 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
         return world_pose_mat
 
     def motion_plan_execute_callback(self, goal_handle):
+        if self.planner_busy:
+            self.get_logger().error('Planner is busy')
+            goal_handle.abort()
+            result = MotionPlan.Result()
+            result.success = False
+            return result
+
         self.get_logger().info('Executing goal...')
-        pose_cost_metric = None
 
         # check moveit scaling factors:
         time_dilation_factor = goal_handle.request.time_dilation_factor
@@ -107,7 +113,20 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
             self.get_logger().warn('Cannot set time_dilation_factor = 0.0')
         self.get_logger().info('Planning with time_dilation_factor: ' + str(time_dilation_factor))
 
+        with self.lock:
+            self.planner_busy = True
+
+        try:
+            result = self._do_motion_plan(goal_handle, time_dilation_factor)
+        finally:
+            with self.lock:
+                self.planner_busy = False
+
         goal_handle.succeed()
+        return result
+
+    def _do_motion_plan(self, goal_handle, time_dilation_factor):
+        pose_cost_metric = None
         self.motion_gen.reset(reset_seed=False)
 
         result = MotionPlan.Result()
