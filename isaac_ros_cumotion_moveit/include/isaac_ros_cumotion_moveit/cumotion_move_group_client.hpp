@@ -18,6 +18,7 @@
 #ifndef ISAAC_ROS_CUMOTION_MOVE_GROUP_CLIENT_H
 #define ISAAC_ROS_CUMOTION_MOVE_GROUP_CLIENT_H
 
+#include <atomic>
 #include <future>
 #include <memory>
 
@@ -49,8 +50,8 @@ public:
 
   void getGoal();
 
-  bool result_ready;
-  bool success;
+  std::atomic<bool> result_ready;
+  std::atomic<bool> success;
   moveit_msgs::msg::MotionPlanDetailedResponse plan_response;
 
 private:
@@ -62,8 +63,8 @@ private:
 
   void resultCallback(const GoalHandle::WrappedResult & result);
 
-  bool get_goal_handle_;
-  bool get_result_handle_;
+  std::atomic<bool> get_goal_handle_;
+  std::atomic<bool> get_result_handle_;
   std::shared_ptr<rclcpp::Node> node_;
   rclcpp::CallbackGroup::SharedPtr client_cb_group_;
   rclcpp_action::Client<moveit_msgs::action::MoveGroup>::SharedPtr client_;
