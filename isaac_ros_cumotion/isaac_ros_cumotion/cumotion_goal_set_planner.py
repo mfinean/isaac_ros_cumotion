@@ -21,6 +21,7 @@ from moveit_msgs.msg import MoveItErrorCodes
 import numpy as np
 import rclpy
 from rclpy.action import ActionServer
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from scipy.spatial.transform import Rotation as R
 
@@ -29,8 +30,10 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
 
     def __init__(self):
         super().__init__()
+        self._goal_set_planner_cb_group = MutuallyExclusiveCallbackGroup()
         self._goal_set_planner_server = ActionServer(
-            self, MotionPlan, 'cumotion/motion_plan', self.motion_plan_execute_callback
+            self, MotionPlan, 'cumotion/motion_plan', self.motion_plan_execute_callback,
+            callback_group=self._goal_set_planner_cb_group,
         )
 
     def warmup(self):
