@@ -25,6 +25,7 @@
 #include "moveit/planning_interface/planning_interface.hpp"
 #include "moveit/planning_scene/planning_scene.hpp"
 #include "moveit_msgs/action/move_group.hpp"
+#include "moveit_msgs/msg/motion_plan_response.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
@@ -63,6 +64,8 @@ private:
 
   void resultCallback(const GoalHandle::WrappedResult & result);
 
+  void resultTopicCallback(const moveit_msgs::msg::MotionPlanResponse::SharedPtr msg);
+
   std::atomic<bool> get_goal_handle_;
   std::atomic<bool> get_result_handle_;
   std::shared_ptr<rclcpp::Node> node_;
@@ -70,9 +73,9 @@ private:
   rclcpp_action::Client<moveit_msgs::action::MoveGroup>::SharedPtr client_;
   rclcpp_action::Client<moveit_msgs::action::MoveGroup>::SendGoalOptions send_goal_options_;
   std::shared_future<GoalHandle::SharedPtr> goal_h_;
-  std::shared_future<GoalHandle::WrappedResult> result_future_;
   moveit_msgs::msg::PlanningScene planning_scene_;
   planning_interface::MotionPlanRequest planning_request_;
+  rclcpp::Subscription<moveit_msgs::msg::MotionPlanResponse>::SharedPtr result_sub_;
 };
 
 }  // namespace manipulation

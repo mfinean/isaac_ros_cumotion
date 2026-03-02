@@ -44,6 +44,7 @@ from isaac_ros_cumotion_python_utils.utils import (
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import CollisionObject
 from moveit_msgs.msg import MoveItErrorCodes
+from moveit_msgs.msg import MotionPlanResponse
 from moveit_msgs.msg import RobotTrajectory
 import numpy as np
 from nvblox_msgs.srv import EsdfAndGradients
@@ -52,6 +53,7 @@ from rclpy.action import ActionServer
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 from tf2_ros.buffer import Buffer
@@ -72,6 +74,7 @@ class CumotionActionServer(Node):
         self.declare_parameter('yml_file_path', rclpy.Parameter.Type.STRING)
         self.declare_parameter('time_dilation_factor', 0.5)
         self.declare_parameter('max_attempts', 10)
+        self.declare_parameter('finetune_timeout', 2.5)
         self.declare_parameter('num_graph_seeds', 6)
         self.declare_parameter('num_trajopt_seeds', 6)
         self.declare_parameter('include_trajopt_retract_seed', True)
@@ -161,6 +164,9 @@ class CumotionActionServer(Node):
 
         self.__max_attempts = (
             self.get_parameter('max_attempts').get_parameter_value().integer_value
+        )
+        self.__finetune_timeout = (
+            self.get_parameter('finetune_timeout').get_parameter_value().double_value
         )
         self.__num_graph_seeds = (
             self.get_parameter('num_graph_seeds').get_parameter_value().integer_value
@@ -339,6 +345,15 @@ class CumotionActionServer(Node):
         self._action_server = ActionServer(
             self, MoveGroup, 'cumotion/move_group', self.execute_callback,
             callback_group=self._action_server_cb_group,
+        )
+
+        # Publish planning results on a topic to bypass the rclcpp_action
+        # GetResult service which fails to deserialize large trajectories
+        # with CycloneDDS.
+        self._result_pub = self.create_publisher(
+            MotionPlanResponse,
+            'cumotion/planning_result',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE),
         )
 
         self._ik_action_server_cb_group = MutuallyExclusiveCallbackGroup()
@@ -771,6 +786,24 @@ class CumotionActionServer(Node):
                 self.publish_voxels(xyzr_tensor)
         return world_update_status
 
+    def _publish_result_topic(self, result, group_name=''):
+        """Publish planning result on a topic for the C++ MoveIt plugin.
+
+        The rclcpp_action GetResult service fails to deserialize large
+        trajectories with CycloneDDS. This topic-based delivery bypasses
+        that issue entirely.
+        """
+        msg = MotionPlanResponse()
+        msg.error_code = result.error_code
+        msg.group_name = group_name
+        if result.planned_trajectory.joint_trajectory.points:
+            msg.trajectory = result.planned_trajectory
+            msg.trajectory_start = result.trajectory_start
+            msg.planning_time = (
+                result.planning_time if hasattr(result, 'planning_time') else 0.0
+            )
+        self._result_pub.publish(msg)
+
     def execute_callback(self, goal_handle):
         if self.planner_busy:
             self.get_logger().error('Planner is busy')
@@ -802,6 +835,7 @@ class CumotionActionServer(Node):
         if not world_update_status:
             result.error_code.val = MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE
             self.get_logger().error('World update failed.')
+            self._publish_result_topic(result, plan_req.group_name)
             goal_handle.succeed()
             return result
         start_state = None
@@ -824,6 +858,7 @@ class CumotionActionServer(Node):
                     self.get_logger().error(
                         'joint_state was not received from ' + self.__joint_states_topic
                     )
+                    self._publish_result_topic(result, plan_req.group_name)
                     goal_handle.succeed()
                     return result
 
@@ -844,6 +879,7 @@ class CumotionActionServer(Node):
                     ' start velocity shape is ' + str(state.velocity.shape) +
                     ', both should match. JointState was read from ' + self.__joint_states_topic
                 )
+                self._publish_result_topic(result, plan_req.group_name)
                 goal_handle.succeed()
                 return result
             current_joint_state = self.motion_gen.get_active_js(state)
@@ -924,6 +960,7 @@ class CumotionActionServer(Node):
                     + '" do not match'
                 )
                 result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
+                self._publish_result_topic(result, plan_req.group_name)
                 goal_handle.succeed()
                 return result
             if position_link_name != plan_link_name:
@@ -936,6 +973,7 @@ class CumotionActionServer(Node):
                     + position_link_name
                 )
                 result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
+                self._publish_result_topic(result, plan_req.group_name)
                 goal_handle.succeed()
                 return result
         else:
@@ -958,6 +996,7 @@ class CumotionActionServer(Node):
                 goal_state,
                 MotionGenPlanConfig(
                     max_attempts=self.__max_attempts,
+                    timeout=self.__finetune_timeout,
                     enable_graph_attempt=1,
                     enable_graph=True,
                     enable_opt=self.__enable_trajectory_optimization,
@@ -995,6 +1034,7 @@ class CumotionActionServer(Node):
                 goal_pose,
                 MotionGenPlanConfig(
                     max_attempts=self.__max_attempts,
+                    timeout=self.__finetune_timeout,
                     enable_graph_attempt=1,
                     enable_graph=True,
                     enable_opt=self.__enable_trajectory_optimization,
@@ -1080,6 +1120,7 @@ class CumotionActionServer(Node):
             + str(motion_gen_result.status)
         )
         self.__query_count += 1
+        self._publish_result_topic(result, plan_req.group_name)
         goal_handle.succeed()
         return result
 

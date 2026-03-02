@@ -23,6 +23,7 @@
 #include <string>
 
 #include "moveit_msgs/action/move_group.hpp"
+#include "moveit_msgs/msg/motion_plan_response.hpp"
 #include "moveit_msgs/msg/planning_options.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -60,8 +61,12 @@ CumotionMoveGroupClient::CumotionMoveGroupClient(const rclcpp::Node::SharedPtr &
     &CumotionMoveGroupClient::goalResponseCallback, this, std::placeholders::_1);
   send_goal_options_.feedback_callback = std::bind(
     &CumotionMoveGroupClient::feedbackCallback, this, std::placeholders::_1, std::placeholders::_2);
-  send_goal_options_.result_callback = std::bind(
-    &CumotionMoveGroupClient::resultCallback, this, std::placeholders::_1);
+
+  // Subscribe to the result topic published by the cuMotion Python planner.
+  result_sub_ = node_->create_subscription<moveit_msgs::msg::MotionPlanResponse>(
+    "cumotion/planning_result",
+    rclcpp::QoS(1).reliable(),
+    std::bind(&CumotionMoveGroupClient::resultTopicCallback, this, std::placeholders::_1));
 }
 
 void CumotionMoveGroupClient::updateGoal(
@@ -76,6 +81,7 @@ bool CumotionMoveGroupClient::sendGoal()
 {
   result_ready = false;
   success = false;
+  get_result_handle_ = true;  // Arms the topic callback for exactly one result
 
   moveit_msgs::msg::PlanningOptions plan_options;
   plan_options.planning_scene_diff = planning_scene_;
@@ -93,15 +99,12 @@ bool CumotionMoveGroupClient::sendGoal()
 
   auto goal_handle_future = client_->async_send_goal(goal_msg, send_goal_options_);
   goal_h_ = goal_handle_future;
-  get_result_handle_ = true;
   get_goal_handle_ = true;
   return true;
 }
 
 void CumotionMoveGroupClient::getGoal()
 {
-  using namespace std::chrono_literals;
-
   if (get_goal_handle_) {
     if (goal_h_.wait_for(std::chrono::milliseconds(kGetGoalWaitIntervalInMs)) !=
       std::future_status::ready)
@@ -113,48 +116,11 @@ void CumotionMoveGroupClient::getGoal()
 
     if (!goal_handle) {
       RCLCPP_ERROR(node_->get_logger(), "Goal was rejected by server");
-      return;
-    }
-    auto result_future = client_->async_get_result(goal_handle);
-    result_future_ = result_future;
-    get_goal_handle_ = false;
-  }
-
-  if (get_result_handle_) {
-    if (result_future_.wait_for(std::chrono::milliseconds(kGetGoalWaitIntervalInMs)) !=
-      std::future_status::ready)
-    {
-      return;
-    }
-
-    auto res = result_future_.get();
-
-    RCLCPP_INFO(node_->get_logger(), "Checking results");
-
-    if (res.code == rclcpp_action::ResultCode::SUCCEEDED) {
-      RCLCPP_INFO(node_->get_logger(), "Success");
-      plan_response.error_code = res.result->error_code;
-      if (plan_response.error_code.val == 1) {
-        plan_response.trajectory_start = res.result->trajectory_start;
-        plan_response.group_name = planning_request_.group_name;
-        plan_response.trajectory.resize(1);
-        plan_response.trajectory[0] = res.result->planned_trajectory;
-        plan_response.processing_time = {res.result->planning_time};
-        success = true;
-      } else {
-        success = false;
-      }
-      // Set result_ready LAST — it is the release flag that the polling
-      // loop checks.  All data must be fully populated before this point.
-      result_ready = true;
-    } else {
-      RCLCPP_INFO(node_->get_logger(), "Failed");
       success = false;
       result_ready = true;
     }
-    get_result_handle_ = false;
+    get_goal_handle_ = false;
   }
-
 }
 
 void CumotionMoveGroupClient::goalResponseCallback(const GoalHandle::SharedPtr & future)
@@ -180,31 +146,41 @@ void CumotionMoveGroupClient::feedbackCallback(
 
 void CumotionMoveGroupClient::resultCallback(const GoalHandle::WrappedResult & result)
 {
-  RCLCPP_INFO(node_->get_logger(), "Received result");
+  (void)result;
+}
 
-  // NOTE: Do NOT populate plan_response here. getGoal() handles result
-  // extraction on the polling thread. Writing plan_response from both
-  // this callback thread and getGoal() causes a data race / double-free
-  // on plan_response.trajectory (the JointTrajectory copy-assignment
-  // frees the old buffer while the other thread is still using it).
-  //
-  // Only log non-success codes so we surface aborted/canceled early.
-  switch (result.code) {
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      break;
-    case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(node_->get_logger(), "Goal was aborted");
-      result_ready = true;
-      return;
-    case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(node_->get_logger(), "Goal was canceled");
-      result_ready = true;
-      return;
-    default:
-      RCLCPP_ERROR(node_->get_logger(), "Unknown result code");
-      result_ready = true;
-      return;
+void CumotionMoveGroupClient::resultTopicCallback(
+  const moveit_msgs::msg::MotionPlanResponse::SharedPtr msg)
+{
+  // Atomically claim this result. get_result_handle_ is set to true in
+  // sendGoal() and flipped to false by the first callback to arrive.
+  // All subsequent callbacks (CycloneDDS retransmissions or executor
+  // thread races) see false and return immediately.
+  bool expected = true;
+  if (!get_result_handle_.compare_exchange_strong(expected, false)) {
+    return;
   }
+
+  RCLCPP_INFO(node_->get_logger(),
+    "Received result via topic: error_code.val=%d, trajectory points=%zu",
+    msg->error_code.val,
+    msg->trajectory.joint_trajectory.points.size());
+
+  plan_response.error_code = msg->error_code;
+
+  if (msg->error_code.val == 1) {  // MoveItErrorCodes::SUCCESS
+    plan_response.trajectory_start = msg->trajectory_start;
+    plan_response.group_name = msg->group_name;
+    plan_response.trajectory.resize(1);
+    plan_response.trajectory[0] = msg->trajectory;
+    plan_response.processing_time = {msg->planning_time};
+    success = true;
+  } else {
+    success = false;
+  }
+
+  // Set result_ready LAST — all data must be populated before this.
+  result_ready = true;
 }
 
 }  // namespace manipulation
