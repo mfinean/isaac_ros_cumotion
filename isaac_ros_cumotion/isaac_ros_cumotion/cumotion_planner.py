@@ -944,10 +944,11 @@ class CumotionActionServer(Node):
         with self.lock:
             self.planner_busy = True
 
-        # Full reset (including random seeds) to prevent hysteresis where
-        # stale finetune solver state causes FINETUNE_TRAJOPT_FAIL on
-        # repeated plans of the same transition.
-        self.motion_gen.reset()
+        # Reset solver state to prevent hysteresis where stale finetune
+        # solver state causes FINETUNE_TRAJOPT_FAIL on repeated plans.
+        # reset_seed=False preserves random seeds (~0ms vs ~100ms for full reset)
+        # while still clearing the solver state that causes the issue.
+        self.motion_gen.reset(reset_seed=False)
 
         # Execute planning using the appropriate method based on goal type
         if use_joint_space_planning:
@@ -974,7 +975,7 @@ class CumotionActionServer(Node):
                     f'Trajopt failed ({motion_gen_result.status}), '
                     'retrying without finetune'
                 )
-                self.motion_gen.reset()
+                self.motion_gen.reset(reset_seed=False)
                 motion_gen_result = self.motion_gen.plan_single_js(
                     start_state,
                     goal_state,
@@ -1010,7 +1011,7 @@ class CumotionActionServer(Node):
                     f'Trajopt failed ({motion_gen_result.status}), '
                     'retrying without finetune'
                 )
-                self.motion_gen.reset()
+                self.motion_gen.reset(reset_seed=False)
                 motion_gen_result = self.motion_gen.plan_single(
                     start_state,
                     goal_pose,
