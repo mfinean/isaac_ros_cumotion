@@ -188,11 +188,11 @@ class CumotionActionServer(Node):
             self.get_parameter('include_trajopt_retract_seed').get_parameter_value().bool_value
         )
         if include_trajopt_retract_seed:
-            self.__num_trajopt_noisy_seeds = 1
-            self.__trajopt_seed_ratio = {'linear': 1.0}
-        else:
             self.__num_trajopt_noisy_seeds = 2
             self.__trajopt_seed_ratio = {'linear': 0.5, 'bias': 0.5}
+        else:
+            self.__num_trajopt_noisy_seeds = 1
+            self.__trajopt_seed_ratio = {'linear': 1.0}
 
         self.__enable_trajectory_optimization = (
             self.get_parameter('enable_trajectory_optimization').get_parameter_value().bool_value
@@ -1001,6 +1001,7 @@ class CumotionActionServer(Node):
                     enable_graph=True,
                     enable_opt=self.__enable_trajectory_optimization,
                     time_dilation_factor=time_dilation_factor,
+                    finetune_js_dt_scale=1.0,
                 ),
             )
             # Fallback: if finetune failed, retry without finetune (keeps
@@ -1039,6 +1040,7 @@ class CumotionActionServer(Node):
                     enable_graph=True,
                     enable_opt=self.__enable_trajectory_optimization,
                     time_dilation_factor=time_dilation_factor,
+                    finetune_js_dt_scale=1.0,
                 ),
             )
             # Fallback: if finetune failed, retry without finetune.
