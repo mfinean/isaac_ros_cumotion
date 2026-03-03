@@ -75,6 +75,7 @@ class CumotionActionServer(Node):
         self.declare_parameter('time_dilation_factor', 0.5)
         self.declare_parameter('max_attempts', 10)
         self.declare_parameter('finetune_timeout', 2.5)
+        self.declare_parameter('finetune_trajopt_file', '')
         self.declare_parameter('num_graph_seeds', 6)
         self.declare_parameter('num_trajopt_seeds', 6)
         self.declare_parameter('include_trajopt_retract_seed', True)
@@ -168,6 +169,10 @@ class CumotionActionServer(Node):
         self.__finetune_timeout = (
             self.get_parameter('finetune_timeout').get_parameter_value().double_value
         )
+        finetune_file = (
+            self.get_parameter('finetune_trajopt_file').get_parameter_value().string_value
+        )
+        self.__finetune_trajopt_file = finetune_file if finetune_file else None
         self.__num_graph_seeds = (
             self.get_parameter('num_graph_seeds').get_parameter_value().integer_value
         )
@@ -446,6 +451,7 @@ class CumotionActionServer(Node):
             collision_checker_type=CollisionCheckerType.VOXEL,
             ee_link_name=self.__tool_frame,
             finetune_trajopt_iters=self.__trajopt_finetune_iters,
+            finetune_trajopt_file=self.__finetune_trajopt_file,
         )
 
         motion_gen = MotionGen(motion_gen_config)
