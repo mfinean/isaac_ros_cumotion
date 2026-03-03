@@ -34,3 +34,5 @@
     cuda_mps_client_priority: 0
     cuda_mps_active_thread_percentage: 100
     moveit_collision_objects_scene_file: ''
+    finetune_timeout: 2.5
+    finetune_trajopt_file: ''
